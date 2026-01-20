@@ -1,0 +1,193 @@
+import pandas as pd
+import numpy as np
+
+INPUT = r"C:\Users\emuru\Downloads\Copy of CITES Extracted Data V2.xlsx - Sheet1 (1).csv"
+SHEET_NAME = 0
+HON_COL = "Honorific"
+PRED_COL = "Female(Guess)"   # 0=male, 1=female (or probability)
+COP_COL = "COP"                  # column name in your file
+EXCLUDE_COP_VALUE = ""      # exclude this
+
+# ----------------------------
+# 1) Honorific standardization (match your R logic)
+# ----------------------------
+def standardize_honorifics(s: pd.Series) -> pd.Series:
+    s = s.copy()
+    s = s.where(s.isna(), s.astype(str).str.strip())
+
+    def fullmatch_mask(series, pattern, case=True):
+        return series.notna() & series.astype(str).str.fullmatch(pattern, case=case, na=False)
+
+    s.loc[fullmatch_mask(s, r"Dr")] = "Dr."
+    s.loc[fullmatch_mask(s, r"H\.E")] = "H.E."
+    s.loc[fullmatch_mask(s, r"H\.E\.Mr\.*")] = "H.E. Mr."
+    s.loc[fullmatch_mask(s, r"H\.E\.Ms\.*")] = "H.E. Ms."
+    s.loc[fullmatch_mask(s, r"Ms")] = "Ms."
+    s.loc[fullmatch_mask(s, r"Mr")] = "Mr."
+    s.loc[fullmatch_mask(s, r"Mr\.T")] = "Mr."
+    s.loc[fullmatch_mask(s, r"Ms\.T")] = "Ms."
+    s.loc[fullmatch_mask(s, r"Ms\.Y")] = "Ms."
+    s.loc[fullmatch_mask(s, r"Prof")] = "Prof."
+    s.loc[fullmatch_mask(s, r"Prof\. Dr\.")] = "Prof."
+    s.loc[fullmatch_mask(s, r"sr\.", case=False)] = "Sr."
+    s.loc[fullmatch_mask(s, r"Professor")] = "Prof."
+    s.loc[fullmatch_mask(s, r"Miss")] = "Ms."
+    s.loc[fullmatch_mask(s, r"M\. S\.")] = "M."
+    s.loc[fullmatch_mask(s, r"Mme")] = "Mme."
+
+    return s
+
+# ----------------------------
+# 2) Gold standard Female/Male from honorifics (exactly like your R code)
+# ----------------------------
+def add_gold_gender(df: pd.DataFrame, honorific_col: str) -> pd.DataFrame:
+    df = df.copy()
+    df["Female"] = np.nan
+    df["Male"] = np.nan
+    h = df[honorific_col]
+
+    # Female
+    df.loc[h == "H.E. Mr.", "Female"] = 0
+    df.loc[h == "H.E. Ms.", "Female"] = 1
+    df.loc[h == "M.",       "Female"] = 0
+    df.loc[h == "Mme.",     "Female"] = 1
+    df.loc[h == "Mr.",      "Female"] = 0
+    df.loc[h == "Mrs.",     "Female"] = 1
+    df.loc[h == "Ms.",      "Female"] = 1
+    df.loc[h == "Sra.",     "Female"] = 1
+    df.loc[h == "Sr.",      "Female"] = 0
+
+    # Male
+    df.loc[h == "H.E. Mr.", "Male"] = 1
+    df.loc[h == "H.E. Ms.", "Male"] = 0
+    df.loc[h == "M.",       "Male"] = 1
+    df.loc[h == "Mme.",     "Male"] = 0
+    df.loc[h == "Mr.",      "Male"] = 1
+    df.loc[h == "Mrs.",     "Male"] = 0
+    df.loc[h == "Ms.",      "Male"] = 0
+    df.loc[h == "Sra.",     "Male"] = 0
+    df.loc[h == "Sr.",      "Male"] = 1
+
+    df["GoldGender"] = np.where((df["Female"] == 1) & (df["Male"] == 0), "Female",
+                        np.where((df["Female"] == 0) & (df["Male"] == 1), "Male", np.nan))
+    return df
+
+# ----------------------------
+# 3) Pred gender from Female_Prediction
+# ----------------------------
+def add_pred_gender(df: pd.DataFrame, pred_col: str) -> pd.DataFrame:
+    df = df.copy()
+    pred = pd.to_numeric(df[pred_col], errors="coerce")
+    uniq = sorted(set(pred.dropna().unique().tolist()))
+    is_binary_01 = set(uniq).issubset({0.0, 1.0})
+
+    if is_binary_01:
+        pred_label = pred
+    else:
+        pred_label = (pred >= 0.5).astype(float)
+
+    df["PredGender"] = np.where(pred_label == 1, "Female",
+                         np.where(pred_label == 0, "Male", np.nan))
+    df["_pred_is_binary_01"] = is_binary_01
+    return df
+
+# ----------------------------
+# 4) Metrics
+# ----------------------------
+def compute_metrics(gold: pd.Series, pred: pd.Series) -> pd.DataFrame:
+    gold = gold.astype(str)
+    pred = pred.astype(str)
+    acc = (gold == pred).mean() * 100.0
+
+    def pr_re_f1(pos_label: str):
+        tp = ((gold == pos_label) & (pred == pos_label)).sum()
+        fp = ((gold != pos_label) & (pred == pos_label)).sum()
+        fn = ((gold == pos_label) & (pred != pos_label)).sum()
+        precision = (tp / (tp + fp) * 100.0) if (tp + fp) > 0 else 0.0
+        recall    = (tp / (tp + fn) * 100.0) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        return precision, recall, f1, tp, fp, fn
+
+    pf, rf, f1f, tp_f, fp_f, fn_f = pr_re_f1("Female")
+    pm, rm, f1m, tp_m, fp_m, fn_m = pr_re_f1("Male")
+
+    out = pd.DataFrame({
+        "Precision": [pf, pm],
+        "Recall":    [rf, rm],
+        "F1":        [f1f, f1m],
+        "Accuracy":  [acc, acc],
+        "TP":        [tp_f, tp_m],
+        "FP":        [fp_f, fp_m],
+        "FN":        [fn_f, fn_m],
+    }, index=["Female", "Male"])
+    out.index.name = "Gender"
+    return out
+
+# ============================
+# RUN
+# ============================
+# df = pd.read_excel(INPUT, sheet_name=SHEET_NAME, engine="openpyxl")
+df = pd.read_csv(INPUT)
+
+print("\n================ FILE LOADED ================")
+print(f"Input: {INPUT}")
+print(f"Total rows in file: {len(df)}")
+print("Columns:", list(df.columns))
+
+for col in [COP_COL, HON_COL, PRED_COL]:
+    if col not in df.columns:
+        raise KeyError(f"Missing required column: {col}")
+
+# Exclude CoP20 (do this BEFORE validation)
+df[COP_COL] = df[COP_COL].astype(str).str.strip()
+df = df[df[COP_COL] != EXCLUDE_COP_VALUE].copy()
+
+print("\n================ AFTER EXCLUDING CoP20 ================")
+print(f"Excluded {EXCLUDE_COP_VALUE}. Remaining rows: {len(df)}")
+print("COP counts (top):")
+print(df[COP_COL].value_counts().head(15))
+
+# Standardize honorifics
+df[HON_COL] = standardize_honorifics(df[HON_COL])
+
+# Gold + Pred
+df = add_gold_gender(df, HON_COL)
+df = add_pred_gender(df, PRED_COL)
+
+print("\n================ VALIDATION SAMPLE COUNTS ================")
+val = df[(df["GoldGender"].isin(["Male", "Female"])) & (df["PredGender"].isin(["Male", "Female"]))].copy()
+print(f"Rows used for validation (gold Male/Female only): {len(val)}")
+
+print("\nHonorific counts in validation sample:")
+print(val[HON_COL].value_counts(dropna=False))
+
+print("\nGoldGender counts:")
+print(val["GoldGender"].value_counts(dropna=False))
+
+print("\nPredGender counts:")
+print(val["PredGender"].value_counts(dropna=False))
+
+print("\nPrediction column interpreted as binary 0/1?:", bool(df["_pred_is_binary_01"].iloc[0]))
+print("Unique prediction values (sorted, first 30):", sorted(pd.to_numeric(df[PRED_COL], errors='coerce').dropna().unique().tolist())[:30])
+
+print("================ CONFUSION MATRIX (Gold vs Pred) ================")
+cm = pd.crosstab(val["GoldGender"], val["PredGender"], margins=True)
+print(cm)
+
+print("\n================ TP / FP / FN / TN ================")
+tp_f = ((val["GoldGender"] == "Female") & (val["PredGender"] == "Female")).sum()
+fp_f = ((val["GoldGender"] == "Male")   & (val["PredGender"] == "Female")).sum()
+fn_f = ((val["GoldGender"] == "Female") & (val["PredGender"] == "Male")).sum()
+tn_f = ((val["GoldGender"] == "Male")   & (val["PredGender"] == "Male")).sum()
+print(f"Female: TP={tp_f}  FP={fp_f}  FN={fn_f}  TN={tn_f}")
+
+tp_m = ((val["GoldGender"] == "Male")   & (val["PredGender"] == "Male")).sum()
+fp_m = ((val["GoldGender"] == "Female") & (val["PredGender"] == "Male")).sum()
+fn_m = ((val["GoldGender"] == "Male")   & (val["PredGender"] == "Female")).sum()
+tn_m = ((val["GoldGender"] == "Female") & (val["PredGender"] == "Female")).sum()
+print(f"Male:   TP={tp_m}  FP={fp_m}  FN={fn_m}  TN={tn_m}")
+
+print("\n================ METRICS TABLE ================")
+metrics = compute_metrics(val["GoldGender"], val["PredGender"])
+paper_table = metrics[["Precision", "Recall", "F1", "Accuracy"]].round(2)
+print(paper_table)
