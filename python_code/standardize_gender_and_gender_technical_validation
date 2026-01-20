@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-INPUT = r"C:\Users\emuru\Downloads\Copy of CITES Extracted Data V2.xlsx - Sheet1 (1).csv"
+INPUT = r"C:\Users\emuru\Downloads\intermediate_data_female_technical_validation.csv"
 SHEET_NAME = 0
 HON_COL = "Honorific"
 PRED_COL = "Female(Guess)"   # 0=male, 1=female (or probability)
