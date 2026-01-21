@@ -53,10 +53,10 @@ missing_pct <- colSums(is.na(main.data)) / nrow(main.data) * 100
 missing_pct
 
 # Collapse data in R
-collapse1 <- summaryBy(Female+Male+Party+Observer~COP+COPyear, FUN=c(mean,sd), data=main.data)
+collapse1 <- summaryBy(Female+Male+Party+Observer~CoP+CoPyear, FUN=c(mean,sd), data=main.data)
 
 # sort by COP year
-collapse1 <- collapse1[order(collapse1$COPyear),]
+collapse1 <- collapse1[order(collapse1$CoPyear),]
 
 # Pivot Female.mean and Male.mean into long format directly from collapse1
 collapse1_long <- collapse1 %>%
@@ -67,7 +67,7 @@ collapse1_long <- collapse1 %>%
 #male/female plot
 pdf(file = "MF.pdf", width = 8, height = 5)  # adjust size as needed
   
-ggplot(collapse1_long, aes(x = COPyear, y = Mean, color = Variable)) +
+ggplot(collapse1_long, aes(x = CoPyear, y = Mean, color = Variable)) +
   geom_line(size = 1) +
   geom_point(size = 2) +
   scale_y_continuous(breaks = seq(0, 1, 0.1)) +
@@ -94,7 +94,7 @@ collapse1_long <- collapse1 %>%
 
 pdf(file = "PO.pdf", width = 8, height = 5)  # adjust size as needed
   
-ggplot(collapse1_long, aes(x = COPyear, y = Mean, color = Variable)) +
+ggplot(collapse1_long, aes(x = CoPyear, y = Mean, color = Variable)) +
   geom_line(size = 1) +
   geom_point(size = 2) +
   scale_y_continuous(breaks = seq(0, 1, 0.1)) +
