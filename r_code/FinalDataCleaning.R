@@ -108,9 +108,6 @@ raw.data$Delegation<- gsub("Comercializacion ","Comercialización ",raw.data$Del
 raw.data$Delegation<- gsub("Comerciálizacion ","Comercialización ",raw.data$Delegation)
 raw.data$Delegation<- gsub("\\(Vet\\.ezuela\\)$","(Venezuela)",raw.data$Delegation)
 
-#Use capitals only (and always) at the start of each unigram
-raw.data$Delegation<-str_to_title(raw.data$Delegation) 
-
 #standardize country names
 raw.data$Delegation<-ifelse(grepl("\\(Italie\\)",raw.data$Delegation),"(Italy)",raw.data$Delegation)
 raw.data$Delegation<-ifelse(grepl("^+Antigua And Barbuda Y Barbuda+$",raw.data$Delegation),"Antigua and Barbuda",raw.data$Delegation)
